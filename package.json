@@ -8,9 +8,6 @@
     "build": "vite build",
     "start": "cross-env NODE_ENV=production node server/index.js",
     "sif:login": "node server/openSifChrome.js",
-    "docker:build": "docker compose build",
-    "docker:up": "docker compose up -d",
-    "docker:down": "docker compose down",
     "test": "vitest run",
     "test:watch": "vitest"
   },

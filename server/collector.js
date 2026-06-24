@@ -41,16 +41,7 @@ export class Collector {
     this.running = false;
   }
 
-  isDisabled() {
-    return process.env.SIF_COLLECTOR_DISABLED === "true";
-  }
-
   async collectAsin(inputAsin) {
-    if (this.isDisabled()) {
-      throw Object.assign(new Error("自动采集已禁用。容器模式请使用上传 XLSX 兜底, 或在 Windows 采集主机原生运行。"), {
-        statusCode: 503
-      });
-    }
     const asin = normalizeAsin(inputAsin);
     try {
       const filePath = await this.downloadWorkbook(asin);
@@ -72,11 +63,6 @@ export class Collector {
   }
 
   async runQueue(asins) {
-    if (this.isDisabled()) {
-      throw Object.assign(new Error("自动采集已禁用。容器模式请使用上传 XLSX 兜底, 或在 Windows 采集主机原生运行。"), {
-        statusCode: 503
-      });
-    }
     if (this.running) {
       throw Object.assign(new Error("采集任务正在运行中"), { statusCode: 409 });
     }

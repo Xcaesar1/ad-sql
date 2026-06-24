@@ -87,12 +87,6 @@ export async function createApp({ dataDir = path.resolve("data"), useVite = proc
   app.post(
     "/api/collections/run",
     asyncRoute(async (req, res) => {
-      if (collector.isDisabled()) {
-        res.status(503).json({
-          error: "自动采集已禁用。容器模式请使用上传 XLSX 兜底, 或在 Windows 采集主机原生运行。"
-        });
-        return;
-      }
       const requested = Array.isArray(req.body?.asins)
         ? req.body.asins.map(normalizeAsin)
         : repository

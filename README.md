@@ -19,42 +19,6 @@ npm run dev
 
 默认监听 `http://0.0.0.0:5173`, 局域网设备可用采集主机 IP 访问。
 
-## Docker 管理
-
-Docker 模式适合长期托管 Web/API/SQLite 和人工上传 XLSX:
-
-```powershell
-npm run docker:build
-npm run docker:up
-```
-
-也可以直接运行:
-
-```powershell
-docker compose up -d --build
-```
-
-默认访问地址仍是:
-
-```text
-http://localhost:5173
-```
-
-停止容器:
-
-```powershell
-npm run docker:down
-```
-
-Docker Compose 使用命名卷 `ad_sql_data` 持久化 `/app/data`, 其中保存 SQLite 数据库和上传归档。默认端口可以通过环境变量覆盖:
-
-```powershell
-$env:PORT = "5180"
-docker compose up -d
-```
-
-注意: Docker 模式默认设置 `SIF_COLLECTOR_DISABLED=true`, 不在容器内打开 GUI Chrome。容器里仍可使用 `上传 XLSX` 兜底入库。需要自动点击 SIF 下载按钮时, 建议在 Windows 采集主机原生运行 `npm run dev` 和 `npm run sif:login`, 使用专用 Chrome 登录态。
-
 ## 首次登录 SIF
 
 在采集主机运行:
