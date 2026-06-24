@@ -10,6 +10,14 @@ const download = {
   })
 };
 
+const workbookResponse = {
+  url: vi.fn(() => "https://www.sif.com/api/updown/asinKeywordList/download?country=US"),
+  status: vi.fn(() => 200),
+  headers: vi.fn(() => ({ "content-type": "application/octet-stream" })),
+  text: vi.fn(async () => ""),
+  body: vi.fn(async () => Buffer.from("PK"))
+};
+
 const buttonLocator = {
   count: vi.fn(async () => 1),
   isVisible: vi.fn(async () => true),
@@ -78,6 +86,10 @@ function useDefaultLocatorMock() {
 const page = {
   goto: vi.fn(async () => undefined),
   locator: vi.fn(),
+  route: vi.fn(async () => undefined),
+  unroute: vi.fn(async () => undefined),
+  waitForFunction: vi.fn(async () => undefined),
+  waitForResponse: vi.fn(async () => workbookResponse),
   waitForEvent: vi.fn(async () => download),
   screenshot: vi.fn(async () => undefined),
   url: vi.fn(() => "https://www.sif.com/reverse")
@@ -163,6 +175,7 @@ describe("Collector browser session", () => {
       const value = String(selector);
       if (value.includes("Sign in") || value.includes("Login")) return loginLocator;
       if (selector === "text=流量词") return hiddenFlowTextLocator;
+      if (value.includes("keyword_list_table_wrap")) return emptyLocator;
       if (value.includes("当前筛选") && value.includes("preceding::*") && value.includes("following-sibling")) return toolbarDownloadLocator;
       if (value.includes("following::*") || value.includes("[class*='download']")) return genericDownloadLocator;
       return buttonLocator;
@@ -191,6 +204,7 @@ describe("Collector browser session", () => {
       const value = String(selector);
       if (value.includes("Sign in") || value.includes("Login")) return loginLocator;
       if (selector === "text=流量词") return hiddenFlowTextLocator;
+      if (value.includes("keyword_list_table_wrap")) return emptyLocator;
       if (value.includes("当前筛选") && value.includes("preceding::*") && value.includes("following-sibling")) return polarDownloadLocator;
       if (value.includes("当前筛选") && value.includes("preceding::*") && value.includes("following::*")) return emptyLocator;
       if (value.includes("当前筛选") && value.includes("contains(@class,'download_icon')")) return workbookDownloadLocator;
@@ -202,6 +216,74 @@ describe("Collector browser session", () => {
 
     expect(polarDownloadLocator.click).not.toHaveBeenCalled();
     expect(workbookDownloadLocator.click).toHaveBeenCalled();
+  });
+
+  test("uses the keyword table toolbar download button even when it uses the polar download class", async () => {
+    dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ad-sql-collector-"));
+    const toolbarDownloadLocator = {
+      ...buttonLocator,
+      click: vi.fn(async () => undefined),
+      evaluate: vi.fn(async () => false)
+    };
+    const genericDownloadLocator = {
+      ...buttonLocator,
+      click: vi.fn(async () => undefined)
+    };
+    page.locator.mockImplementation((selector) => {
+      const value = String(selector);
+      if (value.includes("Sign in") || value.includes("Login")) return loginLocator;
+      if (value.includes("keyword_list_table_wrap") && value.includes("downloadPolorBtn")) return toolbarDownloadLocator;
+      if (value.includes("当前筛选")) return emptyLocator;
+      return genericDownloadLocator;
+    });
+    const collector = new Collector({ repository: {}, dataDir });
+
+    await collector.downloadWorkbook("B0DM96Z44F");
+
+    expect(toolbarDownloadLocator.click).toHaveBeenCalled();
+    expect(genericDownloadLocator.click).not.toHaveBeenCalled();
+  });
+
+  test("patches SIF keyword download requests with the current ASIN and fixed 7 day period", async () => {
+    dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ad-sql-collector-"));
+    const continued = [];
+    const route = {
+      request: vi.fn(() => ({
+        postData: vi.fn(() =>
+          JSON.stringify({
+            pageSize: 50,
+            pageNum: 1,
+            desc: true,
+            conditions: ["totalPeriod.total"],
+            keyword: "",
+            sort: "scoreInfo.scoreRatio"
+          })
+        ),
+        headers: vi.fn(() => ({ authorization: "keep-existing-auth" }))
+      })),
+      continue: vi.fn(async (options) => {
+        continued.push(options);
+      })
+    };
+    page.route.mockImplementationOnce(async (_pattern, handler) => {
+      await handler(route);
+    });
+    const collector = new Collector({ repository: {}, dataDir });
+
+    await collector.downloadWorkbook("B0DM96Z44F");
+
+    expect(page.route).toHaveBeenCalledWith("**/api/updown/asinKeywordList/download?**", expect.any(Function));
+    expect(page.unroute).toHaveBeenCalledWith("**/api/updown/asinKeywordList/download?**", expect.any(Function));
+    expect(continued).toHaveLength(1);
+    expect(JSON.parse(continued[0].postData)).toMatchObject({
+      asin: "B0DM96Z44F",
+      listingSearch: false,
+      timePieceType: "latelyDay",
+      timePieceValue: "7",
+      keywordSearch: "",
+      sortBy: "scoreInfo.scoreRatio"
+    });
+    expect(continued[0].headers.authorization).toBe("keep-existing-auth");
   });
 
   test("skips SIF guide and tutorial controls instead of opening the help video", async () => {
@@ -220,6 +302,7 @@ describe("Collector browser session", () => {
       const value = String(selector);
       if (value.includes("Sign in") || value.includes("Login")) return loginLocator;
       if (selector === "text=流量词") return hiddenFlowTextLocator;
+      if (value.includes("keyword_list_table_wrap")) return emptyLocator;
       if (value.includes("当前筛选") && value.includes("preceding::*") && value.includes("following-sibling")) return guideLocator;
       if (value.includes("当前筛选") && value.includes("preceding::*") && value.includes("following::*")) return emptyLocator;
       if (value.includes("当前筛选") && value.includes("contains(@class,'download_icon')")) return workbookDownloadLocator;

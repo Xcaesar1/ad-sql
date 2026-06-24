@@ -5,6 +5,8 @@ import { normalizeAsin } from "./repository.js";
 
 const SIF_REVERSE_URL =
   "https://www.sif.com/reverse?country=US&from=commonAsinTab&asin=:asin&piece=latelyDay&date=7&isListingSearch=false&trafficType=";
+const SIF_KEYWORD_DOWNLOAD_ROUTE = "**/api/updown/asinKeywordList/download?**";
+const SIF_DOWNLOAD_TIMEOUT_MS = Number(process.env.SIF_DOWNLOAD_TIMEOUT_MS || 30000);
 
 function getChromeProfileDir(dataDir) {
   return process.env.SIF_CHROME_PROFILE_DIR || path.join(dataDir, "chrome-profile");
@@ -22,10 +24,84 @@ function getDiagnosticsDir(dataDir) {
   return dir;
 }
 
+function buildKeywordDownloadPayload(original, asin) {
+  const payload = {
+    ...original,
+    asin,
+    listingSearch: false,
+    timePieceType: "latelyDay",
+    timePieceValue: "7",
+    keywordSearch: original.keywordSearch || "",
+    sortBy: original.sortBy || original.sort || "scoreInfo.scoreRatio"
+  };
+  delete payload.sort;
+  return payload;
+}
+
+async function patchKeywordDownloadRequest(page, asin) {
+  if (typeof page.route !== "function") return async () => undefined;
+  const handler = async (route) => {
+    const request = route.request();
+    let original = {};
+    try {
+      original = JSON.parse(request.postData() || "{}");
+    } catch {
+      original = {};
+    }
+    await route.continue({
+      postData: JSON.stringify(buildKeywordDownloadPayload(original, asin)),
+      headers: { ...request.headers(), "content-type": "application/json" }
+    });
+  };
+  await page.route(SIF_KEYWORD_DOWNLOAD_ROUTE, handler);
+  return async () => {
+    if (typeof page.unroute === "function") {
+      await page.unroute(SIF_KEYWORD_DOWNLOAD_ROUTE, handler).catch(() => undefined);
+    }
+  };
+}
+
+async function waitForKeywordTableReady(page, timeout = 60000) {
+  if (typeof page.waitForFunction !== "function") return;
+  await page.waitForFunction(
+    () => {
+      const text = document.body?.innerText || "";
+      return text.includes("当前筛选") && text.includes("自然排名") && text.includes("SP(常规)排名");
+    },
+    null,
+    { timeout, polling: 500 }
+  );
+}
+
+function isWorkbookResponse(response, body) {
+  const headers = response.headers();
+  const content = `${headers["content-type"] || ""} ${headers["content-disposition"] || ""}`;
+  return /spreadsheet|excel|octet|xlsx/i.test(content) || body.slice(0, 2).toString("utf8") === "PK";
+}
+
+function parseJsonError(text) {
+  try {
+    const data = JSON.parse(text);
+    return data?.message || data?.msg || data?.error || text;
+  } catch {
+    return text;
+  }
+}
+
+function getWorkbookTarget(downloadDir, asin) {
+  return path.join(downloadDir, `${asin}-${Date.now()}-asinKeywords_${asin}_${Date.now()}.xlsx`);
+}
+
 async function findDownloadButton(page) {
   const keywordFilterAnchor =
     "//*[contains(normalize-space(text()),'当前筛选') or (contains(normalize-space(.),'当前筛选') and not(.//*[contains(normalize-space(.),'当前筛选')]))]";
   const candidates = [
+    {
+      name: "keyword-table-action-toolbar-download",
+      locator: page.locator(
+        "xpath=//*[contains(concat(' ', normalize-space(@class), ' '), ' keyword_list_table_wrap ')]//*[contains(concat(' ', normalize-space(@class), ' '), ' table_title_wrap ')]//*[contains(concat(' ', normalize-space(@class), ' '), ' action_wrap ')][contains(normalize-space(.),'流量词') and contains(normalize-space(.),'筛查相关性')]//*[contains(concat(' ', normalize-space(@class), ' '), ' downloadPolorBtn ')][1]"
+      )
+    },
     {
       name: "keyword-toolbar-flow-sibling-download",
       locator: page.locator(
@@ -70,6 +146,9 @@ async function isRejectedDownloadCandidate(locator) {
       const closestClass = node.closest?.(".downloadPolorBtn,.downloadPolarBtn")?.className || "";
       const html = node.outerHTML || "";
       const text = `${node.innerText || node.textContent || ""} ${node.closest?.("button,a,[role='button'],.modal,.el-dialog,.ant-modal")?.innerText || ""}`;
+      const keywordToolbar = node.closest?.(".keyword_list_table_wrap .table_title_wrap .action_wrap");
+      const keywordToolbarText = keywordToolbar?.innerText || keywordToolbar?.textContent || "";
+      if (/流量词/.test(keywordToolbarText) && /筛查相关性/.test(keywordToolbarText)) return false;
       return /downloadPolorBtn|downloadPolarBtn|使用指南|视频教程|秒懂视频|下载插件|购买会员|购买积分|AI工具/i.test(
         `${className} ${closestClass} ${html} ${text}`
       );
@@ -135,6 +214,25 @@ async function describeDownloadCandidate(candidate) {
     })
     .catch((error) => ({ inspectError: error.message }));
   return JSON.stringify({ ...base, ...element });
+}
+
+async function saveKeywordWorkbookResponse(response, downloadDir, asin) {
+  const body = await response.body();
+  if (isWorkbookResponse(response, body)) {
+    const target = getWorkbookTarget(downloadDir, asin);
+    fs.writeFileSync(target, body);
+    return target;
+  }
+
+  const text = body.toString("utf8").slice(0, 1000);
+  throw new Error(withManualHandoff(`SIF 下载接口返回异常: ${parseJsonError(text) || `HTTP ${response.status()}`}`));
+}
+
+async function saveKeywordWorkbookDownload(download, downloadDir, asin) {
+  const suggested = download.suggestedFilename();
+  const target = path.join(downloadDir, `${asin}-${Date.now()}-${suggested || `asinKeywords_${asin}.xlsx`}`);
+  await download.saveAs(target);
+  return target;
 }
 
 function formatLaunchError(error, profileDir) {
@@ -262,7 +360,18 @@ export class Collector {
         throw new Error(withManualHandoff("SIF 登录态失效, 请在采集主机专用 Chrome 中重新登录"));
       }
 
-      const candidate = await waitForDownloadButton(page, 60000);
+      try {
+        await waitForKeywordTableReady(page, 60000);
+      } catch (error) {
+        const screenshotPath = await saveDiagnosticScreenshot(page, this.dataDir, asin, "keyword-table-not-ready");
+        throw new Error(
+          withManualHandoff(
+            `SIF 流量词表 60 秒内未加载完成${screenshotPath ? `。诊断截图: ${screenshotPath}` : ""}。原始错误: ${error.message}`
+          )
+        );
+      }
+
+      const candidate = await waitForDownloadButton(page, 15000);
       if (!candidate) {
         const screenshotPath = await saveDiagnosticScreenshot(page, this.dataDir, asin, "download-button-missing");
         throw new Error(
@@ -272,25 +381,41 @@ export class Collector {
       const buttonDebug = await describeDownloadCandidate(candidate);
       const button = candidate.locator;
 
-      let download;
+      let unpatchDownloadRequest = async () => undefined;
       try {
-        [download] = await Promise.all([page.waitForEvent("download", { timeout: 60000 }), button.click()]);
+        unpatchDownloadRequest = await patchKeywordDownloadRequest(page, asin);
+        const responsePromise = page.waitForResponse(
+          (response) => response.url().includes("/api/updown/asinKeywordList/download"),
+          { timeout: SIF_DOWNLOAD_TIMEOUT_MS }
+        );
+        const downloadPromise = page.waitForEvent("download", { timeout: SIF_DOWNLOAD_TIMEOUT_MS }).catch(() => null);
+
+        await button.click();
+        const response = await responsePromise;
+        const download = await Promise.race([
+          downloadPromise,
+          new Promise((resolve) => setTimeout(() => resolve(null), 3000))
+        ]);
+
+        if (download) {
+          return await saveKeywordWorkbookDownload(download, downloadDir, asin);
+        }
+        return await saveKeywordWorkbookResponse(response, downloadDir, asin);
       } catch (error) {
-        if (isDownloadTimeout(error)) {
+        if (isDownloadTimeout(error) || /waitForResponse: Timeout/i.test(error?.message || "")) {
           const screenshotPath = await saveDiagnosticScreenshot(page, this.dataDir, asin, "download-timeout");
           throw new Error(
-            withManualHandoff(`点击 SIF 流量词下载按钮后 60 秒内没有生成 XLSX。可能是页面弹窗, 验证码, 权限限制或按钮定位错误${
+            withManualHandoff(`点击 SIF 流量词下载按钮后 ${Math.round(
+              SIF_DOWNLOAD_TIMEOUT_MS / 1000
+            )} 秒内没有生成 XLSX。可能是页面弹窗, 验证码, 权限限制或 SIF 下载接口未响应${
               screenshotPath ? `。诊断截图: ${screenshotPath}` : ""
             }${buttonDebug ? `。点击目标: ${buttonDebug}` : ""}`)
           );
         }
         throw error;
+      } finally {
+        await unpatchDownloadRequest();
       }
-
-      const suggested = download.suggestedFilename();
-      const target = path.join(downloadDir, `${asin}-${Date.now()}-${suggested || "sif-keywords.xlsx"}`);
-      await download.saveAs(target);
-      return target;
     } catch (error) {
       if (isBrowserClosed(error)) await this.close();
       throw error;
