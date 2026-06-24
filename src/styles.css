@@ -653,7 +653,8 @@ select:focus {
 }
 
 .asin-select,
-.top-chip {
+.top-chip,
+.date-select {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -666,14 +667,16 @@ select:focus {
 }
 
 .asin-select span,
-.top-chip span {
+.top-chip span,
+.date-select span {
   color: var(--muted);
   font-size: 14px;
   font-weight: 600;
 }
 
 .asin-select select,
-.batch-select {
+.batch-select,
+.date-select input {
   min-height: 30px;
   padding: 0 6px;
   border: 0;
@@ -707,6 +710,37 @@ select:focus {
   border: 1px solid var(--line);
   border-radius: 6px;
   font-family: var(--font-ui);
+  font-weight: 600;
+}
+
+.date-select {
+  min-width: 154px;
+}
+
+.date-select input {
+  min-width: 108px;
+  color: var(--ink);
+  background: transparent;
+}
+
+.rail-date-filter {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.rail-date-filter input {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-family: var(--font-ui);
+  font-size: 13px;
   font-weight: 600;
 }
 

@@ -88,4 +88,34 @@ describe("API", () => {
     expect(blocked.body.items[0].isBlocked).toBe(true);
     expect(blocked.body.items[0].blockedBy).toBe("black");
   });
+
+  test("selects persisted collection data by collection date within the 180 day history window", async () => {
+    await request(app).post("/api/asins").send({ asin: "B0DM96Z44F" }).expect(201);
+    const first = app.locals.repository.importWorkbook({
+      asin: "B0DM96Z44F",
+      sourcePath: sampleWorkbook,
+      sourceType: "sif_auto"
+    });
+    const second = app.locals.repository.importWorkbook({
+      asin: "B0DM96Z44F",
+      sourcePath: sampleWorkbook,
+      sourceType: "sif_auto"
+    });
+    app.locals.db
+      .prepare("UPDATE collections SET created_at = ?, completed_at = ? WHERE id = ?")
+      .run("2026-06-01T03:00:00.000Z", "2026-06-01T03:05:00.000Z", first.collection.id);
+    app.locals.db
+      .prepare("UPDATE collections SET created_at = ?, completed_at = ? WHERE id = ?")
+      .run("2026-06-18T03:00:00.000Z", "2026-06-18T03:05:00.000Z", second.collection.id);
+
+    const collections = await request(app).get("/api/collections?asin=B0DM96Z44F&date=2026-06-18").expect(200);
+    expect(collections.body.retentionDays).toBe(180);
+    expect(collections.body.items.map((item) => item.id)).toEqual([second.collection.id]);
+
+    const dashboard = await request(app).get("/api/dashboard?asin=B0DM96Z44F&date=2026-06-01").expect(200);
+    expect(dashboard.body.collection.id).toBe(first.collection.id);
+
+    const keywords = await request(app).get("/api/keywords?asin=B0DM96Z44F&date=2026-06-01").expect(200);
+    expect(keywords.body.items[0].collectionId).toBe(first.collection.id);
+  });
 });

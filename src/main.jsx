@@ -107,6 +107,19 @@ function formatDateRange(value) {
   return `${formatDate(start)} ~ ${formatDate(end)}`;
 }
 
+function formatInputDate(value) {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return "";
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
+function getRetentionStartDate(retentionDays = 180) {
+  const date = new Date();
+  date.setDate(date.getDate() - Math.max(1, Number(retentionDays || 180)));
+  return formatInputDate(date);
+}
+
 function clampPercent(value, min = 0) {
   return Math.max(min, Math.min(100, Number.isFinite(value) ? value : 0));
 }
@@ -628,12 +641,15 @@ function SourceRail({
   selectedAsinItem,
   collections,
   selectedCollectionId,
+  selectedCollectionDate,
+  retentionDays,
   activePanel,
   dashboard,
   isPending,
   blockWords,
   onSelectAsin,
   onSelectCollection,
+  onSelectCollectionDate,
   onPanelChange,
   onRunCollector,
   onAddAsin,
@@ -796,8 +812,18 @@ function SourceRail({
               <h2>历史批次</h2>
               <small>{collections.length}</small>
             </div>
+            <label className="rail-date-filter">
+              <span>按日期查看</span>
+              <input
+                type="date"
+                value={selectedCollectionDate}
+                min={getRetentionStartDate(retentionDays)}
+                max={formatInputDate(new Date())}
+                onChange={(event) => onSelectCollectionDate(event.target.value)}
+              />
+            </label>
             <button className={selectedCollectionId ? "rail-history-row" : "rail-history-row active"} type="button" onClick={() => onSelectCollection("")}>
-              <span>最新批次</span>
+              <span>{selectedCollectionDate ? "所选日期最新批次" : "最新批次"}</span>
               <b>{formatTime(dashboard.collection?.completedAt || selectedAsinItem?.lastSuccessAt)}</b>
             </button>
             <div className="rail-history-list">
@@ -838,6 +864,10 @@ function SourceRail({
                 <dd>SIF 下载流量词</dd>
               </div>
               <div>
+                <dt>历史保留</dt>
+                <dd>最近 {retentionDays} 天</dd>
+              </div>
+              <div>
                 <dt>Chrome 配置</dt>
                 <dd>data/chrome-profile</dd>
               </div>
@@ -849,14 +879,30 @@ function SourceRail({
           </>
         )}
       </section>
-      <small className="version">v1.0.0</small>
+        <small className="version">v1.1.0</small>
     </aside>
   );
 }
 
-function TopBar({ asins, selectedAsin, selectedAsinItem, dashboard, collections, selectedCollectionId, onSelectAsin, onSelectCollection, onRunCollector, onRefresh, isPending }) {
+function TopBar({
+  asins,
+  selectedAsin,
+  selectedAsinItem,
+  dashboard,
+  collections,
+  selectedCollectionId,
+  selectedCollectionDate,
+  retentionDays,
+  onSelectAsin,
+  onSelectCollection,
+  onSelectCollectionDate,
+  onRunCollector,
+  onRefresh,
+  isPending
+}) {
   const status = selectedAsinItem?.lastCollectionStatus || "never";
   const enabledCount = asins.filter((asin) => asin.isEnabled && !asin.isDeleted).length;
+  const currentCollectionTime = dashboard.collection?.completedAt || selectedAsinItem?.lastSuccessAt;
   return (
     <header className="top-bar">
       <button className="icon-button" type="button" aria-label="折叠菜单">
@@ -874,15 +920,25 @@ function TopBar({ asins, selectedAsin, selectedAsinItem, dashboard, collections,
       </label>
       <div className="top-chip">
         <IconCalendar />
-        最近7天 <b>({formatDateRange(dashboard.collection?.completedAt || selectedAsinItem?.lastSuccessAt)})</b>
+        最近7天 <b>({formatDateRange(currentCollectionTime)})</b>
       </div>
       <div className="top-chip top-chip-plain">
         <IconClock />
-        最新采集: <b>{formatTime(dashboard.collection?.completedAt || selectedAsinItem?.lastSuccessAt)}</b>
+        最新采集: <b>{formatTime(currentCollectionTime)}</b>
       </div>
       <StatusBadge status={status} />
+      <label className="date-select">
+        <span>日期</span>
+        <input
+          type="date"
+          value={selectedCollectionDate}
+          min={getRetentionStartDate(retentionDays)}
+          max={formatInputDate(new Date())}
+          onChange={(event) => onSelectCollectionDate(event.target.value)}
+        />
+      </label>
       <select className="batch-select" value={selectedCollectionId} onChange={(event) => onSelectCollection(event.target.value)} disabled={!collections.length}>
-        <option value="">最新批次</option>
+        <option value="">{selectedCollectionDate ? "所选日期最新批次" : "最新批次"}</option>
         {collections.map((collection) => (
           <option key={collection.id} value={collection.id}>
             #{collection.id} {collection.status} {formatTime(collection.completedAt || collection.createdAt)}
@@ -990,6 +1046,8 @@ function App() {
   const [selectedAsin, setSelectedAsin] = useState("");
   const [collections, setCollections] = useState([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState("");
+  const [selectedCollectionDate, setSelectedCollectionDate] = useState("");
+  const [retentionDays, setRetentionDays] = useState(180);
   const [blockWords, setBlockWords] = useState([]);
   const [dashboard, setDashboard] = useState(emptyDashboard);
   const [keywords, setKeywords] = useState([]);
@@ -1019,12 +1077,15 @@ function App() {
     setBlockWords(payload.items);
   }
 
-  async function refreshCollections(asin) {
+  async function refreshCollections(asin, date = selectedCollectionDate) {
     if (!asin) {
       setCollections([]);
       return;
     }
-    const payload = await api(`/api/collections?asin=${encodeURIComponent(asin)}`);
+    const params = new URLSearchParams({ asin });
+    if (date) params.set("date", date);
+    const payload = await api(`/api/collections?${params.toString()}`);
+    if (payload.retentionDays) setRetentionDays(payload.retentionDays);
     setCollections(payload.items);
   }
 
@@ -1036,14 +1097,24 @@ function App() {
     }
     setIsPending(true);
     try {
-      const collectionParam = selectedCollectionId ? `&collectionId=${selectedCollectionId}` : "";
+      const dashboardParams = new URLSearchParams({ asin: selectedAsin });
+      const keywordParams = new URLSearchParams({
+        asin: selectedAsin,
+        search: deferredSearch,
+        showBlocked: String(showBlocked),
+        onlyFirstPage: String(onlyFirstPage),
+        spFilter
+      });
+      if (selectedCollectionId) {
+        dashboardParams.set("collectionId", selectedCollectionId);
+        keywordParams.set("collectionId", selectedCollectionId);
+      } else if (selectedCollectionDate) {
+        dashboardParams.set("date", selectedCollectionDate);
+        keywordParams.set("date", selectedCollectionDate);
+      }
       const [dashboardPayload, keywordPayload] = await Promise.all([
-        api(`/api/dashboard?asin=${encodeURIComponent(selectedAsin)}${collectionParam}`),
-        api(
-          `/api/keywords?asin=${encodeURIComponent(selectedAsin)}${collectionParam}&search=${encodeURIComponent(
-            deferredSearch
-          )}&showBlocked=${showBlocked}&onlyFirstPage=${onlyFirstPage}&spFilter=${spFilter}`
-        )
+        api(`/api/dashboard?${dashboardParams.toString()}`),
+        api(`/api/keywords?${keywordParams.toString()}`)
       ]);
       setDashboard(dashboardPayload);
       setKeywords(keywordPayload.items);
@@ -1061,22 +1132,25 @@ function App() {
   }, []);
 
   useEffect(() => {
-    refreshCollections(selectedAsin).catch((err) => setError(err.message));
+    refreshCollections(selectedAsin, selectedCollectionDate).catch((err) => setError(err.message));
+  }, [selectedAsin, selectedCollectionDate]);
+
+  useEffect(() => {
     setSelectedCollectionId("");
   }, [selectedAsin]);
 
   useEffect(() => {
     refreshData();
-  }, [selectedAsin, selectedCollectionId, deferredSearch, showBlocked, onlyFirstPage, spFilter, blockWords.length]);
+  }, [selectedAsin, selectedCollectionId, selectedCollectionDate, deferredSearch, showBlocked, onlyFirstPage, spFilter, blockWords.length]);
 
   useEffect(() => {
     setPage(1);
-  }, [deferredSearch, showBlocked, onlyFirstPage, spFilter, selectedCollectionId, selectedAsin]);
+  }, [deferredSearch, showBlocked, onlyFirstPage, spFilter, selectedCollectionId, selectedCollectionDate, selectedAsin]);
 
   useEffect(() => {
     setActiveActionKey("");
     setSelectedKeywordRow(null);
-  }, [selectedAsin, selectedCollectionId, deferredSearch, showBlocked, onlyFirstPage, spFilter]);
+  }, [selectedAsin, selectedCollectionId, selectedCollectionDate, deferredSearch, showBlocked, onlyFirstPage, spFilter]);
 
   useEffect(() => {
     if (!activeActionKey) return undefined;
@@ -1197,6 +1271,8 @@ function App() {
         method: "POST"
       });
       setMessage(`已提交全部启用 ASIN 采集任务, 共 ${enabledCount} 个。采集主机会打开或复用专用 Chrome, 请留意窗口状态。`);
+      setSelectedCollectionDate("");
+      setSelectedCollectionId("");
       await refreshAsins();
     } catch (err) {
       setError(err.message);
@@ -1205,6 +1281,11 @@ function App() {
 
   function updateSearch(value) {
     startTransition(() => setSearch(value));
+  }
+
+  function handleSelectCollectionDate(value) {
+    setSelectedCollectionDate(value);
+    setSelectedCollectionId("");
   }
 
   const selectedAsinItem = asins.find((item) => item.asin === selectedAsin);
@@ -1220,12 +1301,15 @@ function App() {
         selectedAsinItem={selectedAsinItem}
         collections={collections}
         selectedCollectionId={selectedCollectionId}
+        selectedCollectionDate={selectedCollectionDate}
+        retentionDays={retentionDays}
         activePanel={activeRailPanel}
         dashboard={dashboard}
         isPending={isPending}
         blockWords={blockWords}
         onSelectAsin={setSelectedAsin}
         onSelectCollection={setSelectedCollectionId}
+        onSelectCollectionDate={handleSelectCollectionDate}
         onPanelChange={setActiveRailPanel}
         onRunCollector={handleRunCollector}
         onAddAsin={handleAddAsin}
@@ -1242,8 +1326,11 @@ function App() {
           dashboard={dashboard}
           collections={collections}
           selectedCollectionId={selectedCollectionId}
+          selectedCollectionDate={selectedCollectionDate}
+          retentionDays={retentionDays}
           onSelectAsin={setSelectedAsin}
           onSelectCollection={setSelectedCollectionId}
+          onSelectCollectionDate={handleSelectCollectionDate}
           onRunCollector={handleRunCollector}
           onRefresh={refreshData}
           isPending={isPending}

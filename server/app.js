@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Collector } from "./collector.js";
 import { createDatabase, ensureDataDirs } from "./db.js";
-import { Repository, normalizeAsin } from "./repository.js";
+import { COLLECTION_RETENTION_DAYS, Repository, normalizeAsin } from "./repository.js";
 
 function asyncRoute(handler) {
   return (req, res, next) => {
@@ -60,7 +60,15 @@ export async function createApp({ dataDir = path.resolve("data"), useVite = proc
   });
 
   app.get("/api/collections", (req, res) => {
-    res.json({ items: repository.listCollections({ asin: req.query.asin }) });
+    res.json({
+      retentionDays: COLLECTION_RETENTION_DAYS,
+      items: repository.listCollections({
+        asin: req.query.asin,
+        date: req.query.date,
+        fromDate: req.query.fromDate,
+        toDate: req.query.toDate
+      })
+    });
   });
 
   app.post(
@@ -98,6 +106,7 @@ export async function createApp({ dataDir = path.resolve("data"), useVite = proc
       items: repository.getFilteredKeywords({
         asin: req.query.asin,
         collectionId: req.query.collectionId,
+        date: req.query.date,
         search: req.query.search,
         showBlocked: parseBoolean(req.query.showBlocked),
         onlyFirstPage: parseBoolean(req.query.onlyFirstPage),
@@ -107,7 +116,7 @@ export async function createApp({ dataDir = path.resolve("data"), useVite = proc
   });
 
   app.get("/api/dashboard", (req, res) => {
-    res.json(repository.getDashboard({ asin: req.query.asin, collectionId: req.query.collectionId }));
+    res.json(repository.getDashboard({ asin: req.query.asin, collectionId: req.query.collectionId, date: req.query.date }));
   });
 
   if (useVite) {

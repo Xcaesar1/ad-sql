@@ -6,6 +6,8 @@ import { nowIso, safeTimestamp } from "./time.js";
 import { parseSifWorkbook } from "./xlsxParser.js";
 
 const ASIN_RE = /^[A-Z0-9]{10}$/;
+export const COLLECTION_RETENTION_DAYS = Math.max(1, Number.parseInt(process.env.COLLECTION_RETENTION_DAYS || "180", 10) || 180);
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function normalizeAsin(asin) {
   return String(asin || "").trim().toUpperCase();
@@ -70,6 +72,54 @@ function mapKeyword(row) {
     weeklySearchTrend: row.weekly_search_trend,
     sourceRowNumber: row.source_row_number
   };
+}
+
+function assertDateString(value, fieldName) {
+  if (!value) return "";
+  const date = String(value).trim();
+  if (!DATE_RE.test(date)) {
+    throw Object.assign(new Error(`${fieldName} 必须是 YYYY-MM-DD 格式`), { statusCode: 400 });
+  }
+  return date;
+}
+
+function dayRange(dateString) {
+  const date = assertDateString(dateString, "date");
+  if (!date) return null;
+  const [year, month, day] = date.split("-").map(Number);
+  const start = new Date(year, month - 1, day);
+  const end = new Date(year, month - 1, day + 1);
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
+function historyCutoffIso(retentionDays = COLLECTION_RETENTION_DAYS) {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - Math.max(1, Number(retentionDays || COLLECTION_RETENTION_DAYS)));
+  return cutoff.toISOString();
+}
+
+function appendCollectionDateFilters(where, values, { date, fromDate, toDate, retentionDays = COLLECTION_RETENTION_DAYS } = {}) {
+  const timestampExpr = "COALESCE(completed_at, created_at)";
+  if (date) {
+    const range = dayRange(date);
+    where.push(`${timestampExpr} >= ?`, `${timestampExpr} < ?`);
+    values.push(range.start, range.end);
+    return;
+  }
+
+  const normalizedFrom = assertDateString(fromDate, "fromDate");
+  const normalizedTo = assertDateString(toDate, "toDate");
+  if (normalizedFrom) {
+    where.push(`${timestampExpr} >= ?`);
+    values.push(dayRange(normalizedFrom).start);
+  } else if (retentionDays) {
+    where.push(`${timestampExpr} >= ?`);
+    values.push(historyCutoffIso(retentionDays));
+  }
+  if (normalizedTo) {
+    where.push(`${timestampExpr} < ?`);
+    values.push(dayRange(normalizedTo).end);
+  }
 }
 
 export class Repository {
@@ -156,18 +206,38 @@ export class Repository {
     this.db.prepare("DELETE FROM block_words WHERE id = ?").run(Number(id));
   }
 
-  listCollections({ asin } = {}) {
+  listCollections({ asin, date, fromDate, toDate, retentionDays = COLLECTION_RETENTION_DAYS } = {}) {
     const normalized = asin ? normalizeAsin(asin) : "";
-    const rows = normalized
-      ? this.db.prepare("SELECT * FROM collections WHERE asin = ? ORDER BY created_at DESC").all(normalized)
-      : this.db.prepare("SELECT * FROM collections ORDER BY created_at DESC LIMIT 200").all();
+    const where = [];
+    const values = [];
+    if (normalized) {
+      where.push("asin = ?");
+      values.push(normalized);
+    }
+    appendCollectionDateFilters(where, values, { date, fromDate, toDate, retentionDays });
+    const sql = `
+      SELECT * FROM collections
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY COALESCE(completed_at, created_at) DESC, id DESC
+      LIMIT 500
+    `;
+    const rows = this.db.prepare(sql).all(...values);
     return rows.map(mapCollection);
   }
 
-  getLatestCollectionId(asin) {
+  getLatestCollectionId(asin, { date } = {}) {
+    const normalized = normalizeAsin(asin);
+    const where = ["asin = ?", "status = 'completed'"];
+    const values = [normalized];
+    if (date) appendCollectionDateFilters(where, values, { date, retentionDays: 0 });
     const row = this.db
-      .prepare("SELECT id FROM collections WHERE asin = ? AND status = 'completed' ORDER BY created_at DESC LIMIT 1")
-      .get(normalizeAsin(asin));
+      .prepare(`
+        SELECT id FROM collections
+        WHERE ${where.join(" AND ")}
+        ORDER BY COALESCE(completed_at, created_at) DESC, id DESC
+        LIMIT 1
+      `)
+      .get(...values);
     return row?.id ?? null;
   }
 
@@ -303,9 +373,9 @@ export class Repository {
     }
   }
 
-  getKeywordRows({ asin, collectionId }) {
+  getKeywordRows({ asin, collectionId, date }) {
     const normalized = normalizeAsin(asin);
-    const targetCollectionId = collectionId ? Number(collectionId) : this.getLatestCollectionId(normalized);
+    const targetCollectionId = collectionId ? Number(collectionId) : this.getLatestCollectionId(normalized, { date });
     if (!targetCollectionId) return [];
     return this.db
       .prepare("SELECT * FROM keywords WHERE asin = ? AND collection_id = ? ORDER BY id")
@@ -313,10 +383,10 @@ export class Repository {
       .map(mapKeyword);
   }
 
-  getFilteredKeywords({ asin, collectionId, search = "", showBlocked = false, onlyFirstPage = false, spFilter = "" }) {
+  getFilteredKeywords({ asin, collectionId, date, search = "", showBlocked = false, onlyFirstPage = false, spFilter = "" }) {
     const blockWords = this.listBlockWords().map((item) => item.word);
     const searchTerm = String(search || "").trim().toLowerCase();
-    let rows = applyBlockWords(this.getKeywordRows({ asin, collectionId }), blockWords);
+    let rows = applyBlockWords(this.getKeywordRows({ asin, collectionId, date }), blockWords);
     if (searchTerm) {
       rows = rows.filter(
         (row) =>
@@ -333,12 +403,12 @@ export class Repository {
     return rows;
   }
 
-  getDashboard({ asin, collectionId }) {
-    const rows = this.getKeywordRows({ asin, collectionId });
+  getDashboard({ asin, collectionId, date }) {
+    const rows = this.getKeywordRows({ asin, collectionId, date });
     const blockWords = this.listBlockWords().map((item) => item.word);
     const decorated = applyBlockWords(rows, blockWords);
     const visibleRows = decorated.filter((row) => !row.isBlocked);
-    const latestCollectionId = collectionId ? Number(collectionId) : this.getLatestCollectionId(asin);
+    const latestCollectionId = collectionId ? Number(collectionId) : this.getLatestCollectionId(asin, { date });
     const collection = latestCollectionId
       ? this.db.prepare("SELECT * FROM collections WHERE id = ?").get(latestCollectionId)
       : null;
