@@ -1,4 +1,4 @@
-import React, { startTransition, useEffect, useState, useDeferredValue } from "react";
+import React, { startTransition, useDeferredValue, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -14,15 +14,28 @@ const emptyDashboard = {
     firstPageSp: 0
   },
   distributions: {
-    organicByPage: { p1: 0, p2: 0, p3: 0, missing: 0 },
-    spByPage: { p1: 0, p2: 0, p3: 0, missing: 0 }
+    organicByPage: { p1: 0, p2: 0, p3: 0, p4plus: 0, missing: 0 },
+    spByPage: { p1: 0, p2: 0, p3: 0, p4plus: 0, missing: 0 }
   },
   opportunities: {
+    counts: {
+      organicStrongNoSp: 0,
+      hasSpWeakOrganic: 0,
+      bothWeak: 0
+    },
     organicStrongNoSp: [],
     hasSpWeakOrganic: [],
     bothWeak: []
   }
 };
+
+const pageSegments = [
+  ["p1", "P1", "第一页", "page-p1"],
+  ["p2", "P2", "第二页", "page-p2"],
+  ["p3", "P3", "第三页", "page-p3"],
+  ["p4plus", ">P3", "三页后", "page-p4"],
+  ["missing", "无", "无排名", "page-missing"]
+];
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -41,6 +54,11 @@ function formatNumber(value) {
   return Number(value || 0).toLocaleString("en-US");
 }
 
+function formatPercent(value, total) {
+  if (!total) return "0%";
+  return `${Math.round((Number(value || 0) / total) * 1000) / 10}%`;
+}
+
 function formatTime(value) {
   if (!value) return "暂无";
   return new Intl.DateTimeFormat("zh-CN", {
@@ -51,6 +69,14 @@ function formatTime(value) {
   }).format(new Date(value));
 }
 
+function getDistributionTotal(distribution = {}) {
+  return pageSegments.reduce((sum, [key]) => sum + Number(distribution[key] || 0), 0);
+}
+
+function clampPercent(value) {
+  return Math.max(2, Math.min(100, value));
+}
+
 function StatusPill({ status }) {
   const labelMap = {
     never: "未采集",
@@ -59,117 +85,222 @@ function StatusPill({ status }) {
     completed: "已完成",
     failed: "失败"
   };
-  return <span className={`pill status-${status || "never"}`}>{labelMap[status] || status || "未采集"}</span>;
+  return <span className={`status-pill status-${status || "never"}`}>{labelMap[status] || status || "未采集"}</span>;
 }
 
-function MetricCard({ label, value, note }) {
+function KpiCard({ label, value, detail, tone = "neutral" }) {
   return (
-    <article className="metric-card">
+    <article className={`kpi-card kpi-${tone}`}>
       <span>{label}</span>
       <strong>{value}</strong>
+      <small>{detail}</small>
+    </article>
+  );
+}
+
+function DistributionPanel({ title, subtitle, distribution, accent }) {
+  const total = getDistributionTotal(distribution) || 1;
+
+  return (
+    <section className="analysis-card distribution-panel">
+      <div className="card-heading">
+        <div>
+          <h3>{title}</h3>
+          <p>{subtitle}</p>
+        </div>
+        <strong>{formatNumber(total)}</strong>
+      </div>
+      <div className="distribution-rows">
+        {pageSegments.map(([key, shortLabel, label, className]) => {
+          const count = Number(distribution?.[key] || 0);
+          return (
+            <div className="distribution-row" key={key}>
+              <span>{shortLabel}</span>
+              <div className="bar-track">
+                <i
+                  className={`${className} ${accent}`}
+                  style={{ width: `${clampPercent((count / total) * 100)}%` }}
+                />
+              </div>
+              <b>{formatNumber(count)}</b>
+              <em>{label}</em>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function CoverageRing({ label, count, total, tone }) {
+  const percent = total ? Math.round((count / total) * 100) : 0;
+  return (
+    <div className="coverage-ring">
+      <i className={`ring ring-${tone}`} style={{ "--value": `${percent * 3.6}deg` }} />
+      <div>
+        <strong>{percent}%</strong>
+        <span>{label}</span>
+        <small>
+          {formatNumber(count)} / {formatNumber(total)}
+        </small>
+      </div>
+    </div>
+  );
+}
+
+function OpportunityTile({ title, count, note, tone }) {
+  return (
+    <article className={`opportunity-tile tile-${tone}`}>
+      <span>{title}</span>
+      <strong>{formatNumber(count)}</strong>
       <small>{note}</small>
     </article>
   );
 }
 
-function DistributionBar({ title, distribution }) {
-  const total =
-    distribution.p1 + distribution.p2 + distribution.p3 + distribution.missing || 1;
-  const segments = [
-    ["p1", "第一页", distribution.p1],
-    ["p2", "第二页", distribution.p2],
-    ["p3", "第三页", distribution.p3],
-    ["missing", "无排名", distribution.missing]
-  ];
+function OpportunityList({ title, count, rows, emptyText }) {
   return (
-    <section className="distribution-card">
-      <div className="section-heading">
+    <section className="analysis-card opportunity-list">
+      <div className="card-heading compact">
         <h3>{title}</h3>
-        <span>{formatNumber(total)} 词</span>
-      </div>
-      <div className="distribution-bar" aria-label={title}>
-        {segments.map(([key, label, count]) => (
-          <div
-            key={key}
-            className={`segment segment-${key}`}
-            style={{ width: `${(count / total) * 100}%` }}
-            title={`${label}: ${count}`}
-          />
-        ))}
-      </div>
-      <div className="legend-row">
-        {segments.map(([key, label, count]) => (
-          <span key={key}>
-            <i className={`dot segment-${key}`} />
-            {label} {formatNumber(count)}
-          </span>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function OpportunityList({ title, rows, emptyText }) {
-  return (
-    <section className="opportunity-card">
-      <div className="section-heading">
-        <h3>{title}</h3>
-        <span>{rows.length}</span>
+        <strong>{formatNumber(count ?? rows.length)}</strong>
       </div>
       {rows.length ? (
-        <ul>
-          {rows.slice(0, 6).map((row) => (
+        <ol>
+          {rows.slice(0, 5).map((row) => (
             <li key={`${row.collectionId}-${row.id}`}>
-              <b>{row.keyword}</b>
-              <span>
-                自然 {row.organicRankDetail || "-"} / SP {row.spRankDetail || "-"}
-              </span>
+              <span>{row.keyword}</span>
+              <b>
+                自然 {row.organicRankDetail || "-"} · SP {row.spRankDetail || "-"}
+              </b>
             </li>
           ))}
-        </ul>
+        </ol>
       ) : (
-        <p className="muted">{emptyText}</p>
+        <p className="empty-note">{emptyText}</p>
       )}
     </section>
   );
 }
 
-function KeywordTable({ rows }) {
+function RankChip({ type, detail, page, rank, total }) {
+  if (!detail) {
+    return (
+      <div className={`rank-chip rank-${type} rank-empty`}>
+        <strong>-</strong>
+        <span>无排名</span>
+      </div>
+    );
+  }
+
+  const pageLabel = page ? `P${page}` : "-";
   return (
-    <div className="table-wrap">
-      <table>
+    <div className={`rank-chip rank-${type} page-${page || "none"}`}>
+      <strong>{detail}</strong>
+      <span>
+        {pageLabel} · {rank || "-"} / {total || "-"}
+      </span>
+    </div>
+  );
+}
+
+function getRankScore(page, rank) {
+  if (!page || !rank) return null;
+  return (Number(page) - 1) * 48 + Number(rank);
+}
+
+function RankLane({ row }) {
+  const maxScore = 192;
+  const organicScore = getRankScore(row.organicPage, row.organicRankPosition);
+  const spScore = getRankScore(row.spPage, row.spRankPosition);
+  const organicX = organicScore ? clampPercent((organicScore / maxScore) * 100) : null;
+  const spX = spScore ? clampPercent((spScore / maxScore) * 100) : null;
+
+  return (
+    <div className="rank-lane" aria-label="自然和 SP 排名对比">
+      <div className="lane-axis">
+        <span>1</span>
+        <span>48</span>
+        <span>96</span>
+        <span>144</span>
+        <span>192</span>
+      </div>
+      <div className="lane-track">
+        {organicX && <i className="lane-dot lane-organic" style={{ left: `${organicX}%` }} title="自然排名" />}
+        {spX && <i className="lane-dot lane-sp" style={{ left: `${spX}%` }} title="SP 排名" />}
+      </div>
+      <div className="lane-legend">
+        <span className="legend-organic">自然</span>
+        <span className="legend-sp">SP</span>
+      </div>
+    </div>
+  );
+}
+
+function TrendMeter({ value, max }) {
+  const percent = max ? clampPercent((Number(value || 0) / max) * 100) : 0;
+  return (
+    <div className="trend-meter">
+      <span>{value ? formatNumber(value) : "-"}</span>
+      <i style={{ width: `${percent}%` }} />
+    </div>
+  );
+}
+
+function KeywordTable({ rows, maxTrend }) {
+  return (
+    <div className="keyword-table-wrap">
+      <table className="keyword-table">
         <thead>
           <tr>
             <th>#</th>
             <th>关键词</th>
             <th>翻译</th>
+            <th>周搜索趋势</th>
             <th>自然排名详情</th>
             <th>SP(常规)排名详情</th>
-            <th>周搜索趋势</th>
+            <th>排名对比</th>
             <th>屏蔽</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row, index) => (
             <tr key={`${row.collectionId}-${row.id}`} className={row.isBlocked ? "is-blocked" : ""}>
-              <td>{index + 1}</td>
-              <td>
+              <td className="index-cell">{index + 1}</td>
+              <td className="keyword-cell">
                 <strong>{row.keyword}</strong>
               </td>
-              <td>{row.translation || "-"}</td>
+              <td className="translation-cell">{row.translation || "-"}</td>
               <td>
-                <span className="rank organic">{row.organicRankDetail || "-"}</span>
+                <TrendMeter value={row.weeklySearchTrend} max={maxTrend} />
               </td>
               <td>
-                <span className="rank sp">{row.spRankDetail || "-"}</span>
+                <RankChip
+                  type="organic"
+                  detail={row.organicRankDetail}
+                  page={row.organicPage}
+                  rank={row.organicRankPosition}
+                  total={row.organicTotal}
+                />
               </td>
-              <td>{row.weeklySearchTrend ? formatNumber(row.weeklySearchTrend) : "-"}</td>
-              <td>{row.isBlocked ? row.blockedBy : "-"}</td>
+              <td>
+                <RankChip
+                  type="sp"
+                  detail={row.spRankDetail}
+                  page={row.spPage}
+                  rank={row.spRankPosition}
+                  total={row.spTotal}
+                />
+              </td>
+              <td>
+                <RankLane row={row} />
+              </td>
+              <td>{row.isBlocked ? <span className="blocked-tag">{row.blockedBy}</span> : <span className="muted-dash">-</span>}</td>
             </tr>
           ))}
           {!rows.length && (
             <tr>
-              <td colSpan="7" className="empty-cell">
+              <td colSpan="8" className="empty-cell">
                 暂无可展示关键词。可以上传 SIF XLSX, 或打开“显示已屏蔽”检查过滤结果。
               </td>
             </tr>
@@ -355,21 +486,30 @@ function App() {
   }
 
   const selectedAsinItem = asins.find((item) => item.asin === selectedAsin);
+  const visibleTotal = dashboard.summary.visibleKeywords;
+  const opportunityCounts = dashboard.opportunities?.counts || {};
+  const organicGapCount = opportunityCounts.organicStrongNoSp ?? dashboard.opportunities.organicStrongNoSp.length;
+  const spWeakCount = opportunityCounts.hasSpWeakOrganic ?? dashboard.opportunities.hasSpWeakOrganic.length;
+  const bothWeakCount = opportunityCounts.bothWeak ?? dashboard.opportunities.bothWeak.length;
+  const maxTrend = keywords.reduce((max, row) => Math.max(max, Number(row.weeklySearchTrend || 0)), 0);
 
   return (
     <main className="app-shell">
-      <aside className="side-panel">
-        <div className="brand-block">
-          <div className="brand-mark">S</div>
+      <aside className="source-rail">
+        <div className="brand-lockup">
+          <div className="brand-mark">A</div>
           <div>
-            <h1>SIF 反查流量词</h1>
-            <p>ASIN 采集与排名看板</p>
+            <h1>SIF Keyword Lab</h1>
+            <p>US · 最近 7 天 · ASIN 反查</p>
           </div>
         </div>
 
-        <section className="panel-section">
-          <h2>ASIN 数据源</h2>
-          <form className="inline-form" onSubmit={handleAddAsin}>
+        <section className="rail-section">
+          <div className="rail-title">
+            <h2>数据源</h2>
+            <span>{asins.length}</span>
+          </div>
+          <form className="rail-form" onSubmit={handleAddAsin}>
             <input
               value={newAsin}
               onChange={(event) => setNewAsin(event.target.value.toUpperCase())}
@@ -382,18 +522,21 @@ function App() {
             {asins.map((asin) => (
               <button
                 key={asin.asin}
-                className={asin.asin === selectedAsin ? "asin-item active" : "asin-item"}
+                className={asin.asin === selectedAsin ? "asin-row active" : "asin-row"}
                 type="button"
                 onClick={() => setSelectedAsin(asin.asin)}
               >
-                <span>{asin.asin}</span>
+                <span>
+                  <b>{asin.asin}</b>
+                  <small>{asin.lastSuccessAt ? formatTime(asin.lastSuccessAt) : "暂无成功采集"}</small>
+                </span>
                 <StatusPill status={asin.lastCollectionStatus} />
               </button>
             ))}
-            {!asins.length && <p className="muted">先添加一个 ASIN。</p>}
+            {!asins.length && <p className="empty-note">先添加一个 ASIN。</p>}
           </div>
           {selectedAsinItem && (
-            <div className="asin-actions">
+            <div className="rail-actions">
               <button type="button" onClick={() => handlePatchAsin(selectedAsin, { isEnabled: !selectedAsinItem.isEnabled })}>
                 {selectedAsinItem.isEnabled ? "停用" : "启用"}
               </button>
@@ -404,9 +547,12 @@ function App() {
           )}
         </section>
 
-        <section className="panel-section">
-          <h2>屏蔽词</h2>
-          <form className="inline-form" onSubmit={handleAddBlockWord}>
+        <section className="rail-section">
+          <div className="rail-title">
+            <h2>屏蔽词</h2>
+            <span>{blockWords.length}</span>
+          </div>
+          <form className="rail-form" onSubmit={handleAddBlockWord}>
             <input
               value={newBlockWord}
               onChange={(event) => setNewBlockWord(event.target.value)}
@@ -420,22 +566,22 @@ function App() {
                 {word.word} <span>×</span>
               </button>
             ))}
-            {!blockWords.length && <p className="muted">暂无屏蔽词。</p>}
+            {!blockWords.length && <p className="empty-note">暂无屏蔽词。</p>}
           </div>
         </section>
       </aside>
 
       <section className="workspace">
-        <header className="topbar">
-          <div>
-            <span className="eyeline">US / 最近 7 天 / XLSX 入库</span>
+        <header className="command-bar">
+          <div className="command-main">
+            <span className="meta-line">Reverse ASIN Keyword Ranking</span>
             <h2>{selectedAsin || "选择一个 ASIN"}</h2>
             <p>
               最新批次 {formatTime(dashboard.collection?.completedAt)} ·{" "}
-              {selectedAsinItem?.lastError ? `错误: ${selectedAsinItem.lastError}` : "自动采集失败时可直接上传 XLSX 兜底"}
+              {selectedAsinItem?.lastError ? `错误: ${selectedAsinItem.lastError}` : "自动采集失败时可以上传 XLSX 兜底"}
             </p>
           </div>
-          <div className="top-actions">
+          <div className="command-actions">
             <select
               value={selectedCollectionId}
               onChange={(event) => setSelectedCollectionId(event.target.value)}
@@ -448,60 +594,107 @@ function App() {
                 </option>
               ))}
             </select>
+            <button type="button" className="soft-button" onClick={refreshData} disabled={!selectedAsin || isPending}>
+              {isPending ? "刷新中" : "刷新"}
+            </button>
             <label className="upload-button">
               上传 XLSX
               <input type="file" accept=".xlsx,.xls" onChange={handleUpload} />
             </label>
-            <button type="button" className="primary" onClick={handleRunCollector} disabled={!selectedAsin}>
-              自动采集
+            <button type="button" className="primary-button" onClick={handleRunCollector} disabled={!selectedAsin}>
+              立即采集
             </button>
           </div>
         </header>
 
         {(message || error) && (
           <div className={error ? "notice error" : "notice"}>
-            {error || message}
+            <span>{error || message}</span>
             <button type="button" onClick={() => { setMessage(""); setError(""); }}>
               关闭
             </button>
           </div>
         )}
 
-        <section className="metric-grid">
-          <MetricCard label="全部关键词" value={formatNumber(dashboard.summary.totalKeywords)} note="原始 XLSX 行数" />
-          <MetricCard label="当前展示" value={formatNumber(dashboard.summary.visibleKeywords)} note={`屏蔽 ${formatNumber(dashboard.summary.blockedKeywords)} 词`} />
-          <MetricCard label="自然排名覆盖" value={formatNumber(dashboard.summary.organicCoverage)} note={`第一页 ${formatNumber(dashboard.summary.firstPageOrganic)}`} />
-          <MetricCard label="SP(常规)覆盖" value={formatNumber(dashboard.summary.spCoverage)} note={`第一页 ${formatNumber(dashboard.summary.firstPageSp)}`} />
+        <section className="kpi-grid">
+          <KpiCard
+            label="展示关键词"
+            value={formatNumber(visibleTotal)}
+            detail={`原始 ${formatNumber(dashboard.summary.totalKeywords)} · 已屏蔽 ${formatNumber(dashboard.summary.blockedKeywords)}`}
+            tone="neutral"
+          />
+          <KpiCard
+            label="自然第一页覆盖"
+            value={formatNumber(dashboard.summary.firstPageOrganic)}
+            detail={`${formatPercent(dashboard.summary.firstPageOrganic, dashboard.summary.totalKeywords)} of 全部词`}
+            tone="organic"
+          />
+          <KpiCard
+            label="SP 第一页覆盖"
+            value={formatNumber(dashboard.summary.firstPageSp)}
+            detail={`${formatPercent(dashboard.summary.firstPageSp, dashboard.summary.totalKeywords)} of 全部词`}
+            tone="sp"
+          />
+          <KpiCard
+            label="自然强但无 SP"
+            value={formatNumber(organicGapCount)}
+            detail="优先评估广告补位"
+            tone="danger"
+          />
         </section>
 
-        <section className="chart-grid">
-          <DistributionBar title="自然排名页码分布" distribution={dashboard.distributions.organicByPage} />
-          <DistributionBar title="SP(常规)排名页码分布" distribution={dashboard.distributions.spByPage} />
-        </section>
-
-        <section className="opportunity-grid">
-          <OpportunityList
-            title="自然强, SP 空缺"
-            rows={dashboard.opportunities.organicStrongNoSp}
-            emptyText="暂无第一页自然词缺 SP 的机会。"
+        <section className="insight-grid">
+          <DistributionPanel
+            title="自然排名分布"
+            subtitle="看自然搜索占位是否集中在第一页"
+            distribution={dashboard.distributions.organicByPage}
+            accent="organic"
           />
-          <OpportunityList
-            title="SP 有位, 自然偏弱"
-            rows={dashboard.opportunities.hasSpWeakOrganic}
-            emptyText="暂无 SP 有排名但自然偏弱的关键词。"
+          <DistributionPanel
+            title="SP(常规)排名分布"
+            subtitle="看广告是否覆盖高价值流量词"
+            distribution={dashboard.distributions.spByPage}
+            accent="sp"
           />
-          <OpportunityList
-            title="自然和 SP 都偏弱"
-            rows={dashboard.opportunities.bothWeak}
-            emptyText="暂无双弱关键词。"
-          />
+          <section className="analysis-card opportunity-board">
+            <div className="card-heading">
+              <div>
+                <h3>机会 / 风险洞察</h3>
+                <p>把排名差异翻译成运营动作</p>
+              </div>
+            </div>
+            <div className="opportunity-tiles">
+              <OpportunityTile title="自然强 / SP 弱" count={organicGapCount} note="自然 P1 且 SP 无排名" tone="green" />
+              <OpportunityTile title="SP 有位 / 自然弱" count={spWeakCount} note="广告在跑, 自然未进 P1" tone="amber" />
+              <OpportunityTile title="双弱词" count={bothWeakCount} note="自然和 SP 都偏弱" tone="slate" />
+              <OpportunityTile title="已屏蔽" count={dashboard.summary.blockedKeywords} note="默认不进入展示" tone="muted" />
+            </div>
+          </section>
+          <section className="analysis-card coverage-card">
+            <div className="card-heading compact">
+              <h3>页一覆盖率</h3>
+            </div>
+            <CoverageRing
+              label="自然 P1"
+              count={dashboard.summary.firstPageOrganic}
+              total={dashboard.summary.totalKeywords}
+              tone="organic"
+            />
+            <CoverageRing
+              label="SP P1"
+              count={dashboard.summary.firstPageSp}
+              total={dashboard.summary.totalKeywords}
+              tone="sp"
+            />
+          </section>
         </section>
 
         <section className="table-card">
           <div className="table-toolbar">
             <div>
-              <h3>关键词明细</h3>
-              <p>{isPending ? "刷新中..." : `展示 ${formatNumber(keywords.length)} 行`}</p>
+              <span className="meta-line">Keyword Detail</span>
+              <h3>关键词排名明细</h3>
+              <p>{isPending ? "刷新中..." : `当前展示 ${formatNumber(keywords.length)} 行`}</p>
             </div>
             <div className="filters">
               <input value={search} onChange={(event) => updateSearch(event.target.value)} placeholder="搜索关键词或翻译" />
@@ -520,7 +713,28 @@ function App() {
               </label>
             </div>
           </div>
-          <KeywordTable rows={keywords} />
+          <KeywordTable rows={keywords} maxTrend={maxTrend} />
+        </section>
+
+        <section className="opportunity-grid">
+          <OpportunityList
+            title="优先补 SP"
+            count={organicGapCount}
+            rows={dashboard.opportunities.organicStrongNoSp}
+            emptyText="暂无自然第一页但 SP 空缺的关键词。"
+          />
+          <OpportunityList
+            title="自然待优化"
+            count={spWeakCount}
+            rows={dashboard.opportunities.hasSpWeakOrganic}
+            emptyText="暂无 SP 有排名但自然偏弱的关键词。"
+          />
+          <OpportunityList
+            title="低优先级观察"
+            count={bothWeakCount}
+            rows={dashboard.opportunities.bothWeak}
+            emptyText="暂无自然和 SP 都偏弱的关键词。"
+          />
         </section>
       </section>
     </main>

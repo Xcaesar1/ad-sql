@@ -343,6 +343,10 @@ export class Repository {
       ? this.db.prepare("SELECT * FROM collections WHERE id = ?").get(latestCollectionId)
       : null;
 
+    const organicStrongNoSp = visibleRows.filter((row) => row.organicPage === 1 && row.spRank === null);
+    const hasSpWeakOrganic = visibleRows.filter((row) => row.spRank !== null && (!row.organicPage || row.organicPage > 1));
+    const bothWeak = visibleRows.filter((row) => (!row.organicPage || row.organicPage > 1) && (!row.spPage || row.spPage > 1));
+
     return {
       collection: collection ? mapCollection(collection) : null,
       summary: {
@@ -359,9 +363,14 @@ export class Repository {
         spByPage: createPageDistribution(rows, "spPage")
       },
       opportunities: {
-        organicStrongNoSp: visibleRows.filter((row) => row.organicPage === 1 && row.spRank === null).slice(0, 20),
-        hasSpWeakOrganic: visibleRows.filter((row) => row.spRank !== null && (!row.organicPage || row.organicPage > 1)).slice(0, 20),
-        bothWeak: visibleRows.filter((row) => (!row.organicPage || row.organicPage > 1) && (!row.spPage || row.spPage > 1)).slice(0, 20)
+        counts: {
+          organicStrongNoSp: organicStrongNoSp.length,
+          hasSpWeakOrganic: hasSpWeakOrganic.length,
+          bothWeak: bothWeak.length
+        },
+        organicStrongNoSp: organicStrongNoSp.slice(0, 20),
+        hasSpWeakOrganic: hasSpWeakOrganic.slice(0, 20),
+        bothWeak: bothWeak.slice(0, 20)
       }
     };
   }

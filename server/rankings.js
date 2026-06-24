@@ -18,7 +18,7 @@ export function toNullableNumber(value) {
 }
 
 export function createPageDistribution(rows, pageField) {
-  const distribution = { p1: 0, p2: 0, p3: 0, missing: 0 };
+  const distribution = { p1: 0, p2: 0, p3: 0, p4plus: 0, missing: 0 };
   for (const row of rows) {
     const page = row[pageField];
     if (!page) {
@@ -29,6 +29,8 @@ export function createPageDistribution(rows, pageField) {
       distribution.p2 += 1;
     } else if (page === 3) {
       distribution.p3 += 1;
+    } else {
+      distribution.p4plus += 1;
     }
   }
   return distribution;
