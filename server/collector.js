@@ -23,23 +23,25 @@ function getDiagnosticsDir(dataDir) {
 }
 
 async function findDownloadButton(page) {
+  const keywordFilterAnchor =
+    "//*[contains(normalize-space(text()),'当前筛选') or (contains(normalize-space(.),'当前筛选') and not(.//*[contains(normalize-space(.),'当前筛选')]))]";
   const candidates = [
     {
-      name: "keyword-filter-flow-download",
+      name: "keyword-toolbar-flow-sibling-download",
       locator: page.locator(
-        "xpath=//*[contains(normalize-space(.),'当前筛选')]/following::*[normalize-space(.)='流量词'][1]/following::*[not(contains(@class,'downloadPolorBtn')) and not(contains(@class,'downloadPolarBtn')) and (self::button or self::a or self::div or self::span or @role='button') and (contains(@class,'download') or contains(@class,'Download') or contains(@class,'icon-xiazai') or contains(@aria-label,'下载') or contains(@title,'下载'))][1]"
+        `xpath=${keywordFilterAnchor}/preceding::*[normalize-space(.)='流量词'][1]/following-sibling::*[not(contains(@class,'downloadPolorBtn')) and not(contains(@class,'downloadPolarBtn')) and (self::button or self::a or self::div or self::span or @role='button') and (contains(@class,'download') or contains(@class,'Download') or contains(@class,'icon-xiazai') or contains(@aria-label,'下载') or contains(@title,'下载') or .//*[contains(@class,'download') or contains(@class,'Download') or contains(@class,'icon-xiazai')])][1]`
       )
     },
     {
-      name: "keyword-filter-download",
+      name: "keyword-toolbar-flow-following-download-icon",
       locator: page.locator(
-        "xpath=//*[contains(normalize-space(.),'当前筛选')]/following::*[not(contains(@class,'downloadPolorBtn')) and not(contains(@class,'downloadPolarBtn')) and (self::button or self::a or self::div or self::span or @role='button') and (contains(@class,'download') or contains(@class,'Download') or contains(@class,'icon-xiazai') or contains(@aria-label,'下载') or contains(@title,'下载'))][1]"
+        `xpath=${keywordFilterAnchor}/preceding::*[normalize-space(.)='流量词'][1]/following::*[contains(@class,'download_icon') or contains(@class,'icon-xiazai')][not(ancestor-or-self::*[contains(@class,'downloadPolorBtn') or contains(@class,'downloadPolarBtn')])][1]`
       )
     },
     {
-      name: "keyword-table-download-icon",
+      name: "keyword-filter-nearest-preceding-download",
       locator: page.locator(
-        "xpath=//*[contains(normalize-space(.),'当前筛选')]/following::*[contains(@class,'download_icon') or contains(@class,'icon-xiazai')][not(ancestor-or-self::*[contains(@class,'downloadPolorBtn') or contains(@class,'downloadPolarBtn')])][1]"
+        `xpath=${keywordFilterAnchor}/preceding::*[not(contains(@class,'downloadPolorBtn')) and not(contains(@class,'downloadPolarBtn')) and (contains(@class,'download_icon') or contains(@class,'icon-xiazai') or contains(@class,'download') or contains(@class,'Download') or contains(@aria-label,'下载') or contains(@title,'下载'))][1]`
       )
     }
   ];

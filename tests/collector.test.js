@@ -163,7 +163,7 @@ describe("Collector browser session", () => {
       const value = String(selector);
       if (value.includes("Sign in") || value.includes("Login")) return loginLocator;
       if (selector === "text=流量词") return hiddenFlowTextLocator;
-      if (value.includes("当前筛选") && value.includes("normalize-space(.)='流量词'")) return toolbarDownloadLocator;
+      if (value.includes("当前筛选") && value.includes("preceding::*") && value.includes("following-sibling")) return toolbarDownloadLocator;
       if (value.includes("following::*") || value.includes("[class*='download']")) return genericDownloadLocator;
       return buttonLocator;
     });
@@ -191,8 +191,8 @@ describe("Collector browser session", () => {
       const value = String(selector);
       if (value.includes("Sign in") || value.includes("Login")) return loginLocator;
       if (selector === "text=流量词") return hiddenFlowTextLocator;
-      if (value.includes("当前筛选") && value.includes("normalize-space(.)='流量词'")) return polarDownloadLocator;
-      if (value.includes("当前筛选") && value.includes("contains(@aria-label,'下载')")) return emptyLocator;
+      if (value.includes("当前筛选") && value.includes("preceding::*") && value.includes("following-sibling")) return polarDownloadLocator;
+      if (value.includes("当前筛选") && value.includes("preceding::*") && value.includes("following::*")) return emptyLocator;
       if (value.includes("当前筛选") && value.includes("contains(@class,'download_icon')")) return workbookDownloadLocator;
       return buttonLocator;
     });
@@ -220,8 +220,8 @@ describe("Collector browser session", () => {
       const value = String(selector);
       if (value.includes("Sign in") || value.includes("Login")) return loginLocator;
       if (selector === "text=流量词") return hiddenFlowTextLocator;
-      if (value.includes("当前筛选") && value.includes("normalize-space(.)='流量词'")) return guideLocator;
-      if (value.includes("当前筛选") && value.includes("contains(@aria-label,'下载')")) return emptyLocator;
+      if (value.includes("当前筛选") && value.includes("preceding::*") && value.includes("following-sibling")) return guideLocator;
+      if (value.includes("当前筛选") && value.includes("preceding::*") && value.includes("following::*")) return emptyLocator;
       if (value.includes("当前筛选") && value.includes("contains(@class,'download_icon')")) return workbookDownloadLocator;
       return buttonLocator;
     });
