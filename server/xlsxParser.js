@@ -33,6 +33,26 @@ function normalizeHeader(value) {
   return String(value || "").replace(/\s+/g, "").trim();
 }
 
+function decodeCharacterReferences(value) {
+  return String(value || "")
+    .replace(/&#x([0-9a-f]+);/gi, (match, hex) => {
+      const codePoint = Number.parseInt(hex, 16);
+      try {
+        return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
+      } catch {
+        return match;
+      }
+    })
+    .replace(/&#(\d+);/g, (match, decimal) => {
+      const codePoint = Number.parseInt(decimal, 10);
+      try {
+        return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
+      } catch {
+        return match;
+      }
+    });
+}
+
 function ensureArray(value) {
   if (!value) return [];
   return Array.isArray(value) ? value : [value];
@@ -104,12 +124,12 @@ function getCellValue(cell, sharedStrings) {
   const type = cell.t;
   if (type === "s") {
     const sharedIndex = Number(getTextNode(cell.v));
-    return sharedStrings[sharedIndex] ?? "";
+    return decodeCharacterReferences(sharedStrings[sharedIndex] ?? "");
   }
   if (type === "inlineStr") {
-    return richTextToString(cell.is);
+    return decodeCharacterReferences(richTextToString(cell.is));
   }
-  return getTextNode(cell.v);
+  return decodeCharacterReferences(getTextNode(cell.v));
 }
 
 function loadRows(zip, sheetPath, sharedStrings) {

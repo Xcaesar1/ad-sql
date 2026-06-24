@@ -36,14 +36,18 @@ describe("API", () => {
     expect(afterDelete.body.items[0].isDeleted).toBe(true);
   });
 
-  test("imports an XLSX batch and filters blocked keywords from dashboard and detail", async () => {
+  test("does not expose a manual XLSX upload fallback endpoint", async () => {
+    await request(app).post("/api/import/xlsx").expect(404);
+  });
+
+  test("reads an imported SIF batch and filters blocked keywords from dashboard and detail", async () => {
     await request(app).post("/api/asins").send({ asin: "B0DM96Z44F" }).expect(201);
     await request(app).post("/api/block-words").send({ word: "black" }).expect(201);
-    await request(app)
-      .post("/api/import/xlsx")
-      .field("asin", "B0DM96Z44F")
-      .attach("file", sampleWorkbook)
-      .expect(201);
+    app.locals.repository.importWorkbook({
+      asin: "B0DM96Z44F",
+      sourcePath: sampleWorkbook,
+      sourceType: "sif_auto"
+    });
 
     const dashboard = await request(app).get("/api/dashboard?asin=B0DM96Z44F").expect(200);
     expect(dashboard.body.summary.totalKeywords).toBe(412);
@@ -51,6 +55,7 @@ describe("API", () => {
     expect(dashboard.body.summary.visibleKeywords).toBeLessThan(412);
     expect(dashboard.body.distributions.organicByPage.p1).toBe(165);
     expect(dashboard.body.distributions.spByPage.p1).toBe(41);
+    expect(dashboard.body.opportunities.counts.bothStrong).toBeGreaterThan(0);
 
     const visible = await request(app).get("/api/keywords?asin=B0DM96Z44F&search=black").expect(200);
     expect(visible.body.items).toHaveLength(0);

@@ -219,7 +219,7 @@ export class Repository {
     if (collection) this.setAsinStatus(collection.asin, "failed", errorMessage);
   }
 
-  importWorkbook({ asin, sourcePath, sourceType = "manual_upload" }) {
+  importWorkbook({ asin, sourcePath, sourceType = "sif_auto" }) {
     const normalized = normalizeAsin(asin);
     assertValidAsin(normalized);
     const parsed = parseSifWorkbook(sourcePath);
@@ -343,9 +343,15 @@ export class Repository {
       ? this.db.prepare("SELECT * FROM collections WHERE id = ?").get(latestCollectionId)
       : null;
 
-    const organicStrongNoSp = visibleRows.filter((row) => row.organicPage === 1 && row.spRank === null);
-    const hasSpWeakOrganic = visibleRows.filter((row) => row.spRank !== null && (!row.organicPage || row.organicPage > 1));
-    const bothWeak = visibleRows.filter((row) => (!row.organicPage || row.organicPage > 1) && (!row.spPage || row.spPage > 1));
+    const isOrganicStrong = (row) => row.organicPage && row.organicPage <= 3;
+    const isSpStrong = (row) => row.spPage && row.spPage <= 3;
+    const isOrganicWeak = (row) => !row.organicPage || row.organicPage > 3;
+    const isSpWeak = (row) => !row.spPage || row.spPage > 3;
+
+    const organicStrongNoSp = visibleRows.filter((row) => isOrganicStrong(row) && isSpWeak(row));
+    const hasSpWeakOrganic = visibleRows.filter((row) => isSpStrong(row) && isOrganicWeak(row));
+    const bothStrong = visibleRows.filter((row) => isOrganicStrong(row) && isSpStrong(row));
+    const bothWeak = visibleRows.filter((row) => isOrganicWeak(row) && isSpWeak(row));
 
     return {
       collection: collection ? mapCollection(collection) : null,
@@ -366,10 +372,12 @@ export class Repository {
         counts: {
           organicStrongNoSp: organicStrongNoSp.length,
           hasSpWeakOrganic: hasSpWeakOrganic.length,
+          bothStrong: bothStrong.length,
           bothWeak: bothWeak.length
         },
         organicStrongNoSp: organicStrongNoSp.slice(0, 20),
         hasSpWeakOrganic: hasSpWeakOrganic.slice(0, 20),
+        bothStrong: bothStrong.slice(0, 20),
         bothWeak: bothWeak.slice(0, 20)
       }
     };
