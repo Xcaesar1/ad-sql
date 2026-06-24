@@ -76,6 +76,10 @@ export async function createApp({ dataDir = path.resolve("data"), useVite = proc
         res.status(400).json({ error: "没有可采集的 ASIN" });
         return;
       }
+      if (collector.isRunning()) {
+        res.status(409).json({ error: "采集任务正在运行中, 请等待当前任务完成后再试" });
+        return;
+      }
       res.status(202).json({ accepted: requested });
       collector
         .runQueue(requested)

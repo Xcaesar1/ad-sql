@@ -26,6 +26,22 @@ const buttonLocator = {
   waitFor: vi.fn(async () => undefined)
 };
 
+const emptyLocator = {
+  count: vi.fn(async () => 0),
+  isVisible: vi.fn(async () => false),
+  click: vi.fn(async () => undefined),
+  first: vi.fn(function first() {
+    return this;
+  }),
+  last: vi.fn(function last() {
+    return this;
+  }),
+  locator: vi.fn(function locator() {
+    return this;
+  }),
+  waitFor: vi.fn(async () => undefined)
+};
+
 const hiddenFlowTextLocator = {
   count: vi.fn(async () => 1),
   isVisible: vi.fn(async () => false),
@@ -156,5 +172,34 @@ describe("Collector browser session", () => {
 
     expect(toolbarDownloadLocator.click).toHaveBeenCalled();
     expect(genericDownloadLocator.click).not.toHaveBeenCalled();
+  });
+
+  test("skips product polar download icons that do not export keyword workbooks", async () => {
+    dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ad-sql-collector-"));
+    const polarDownloadLocator = {
+      ...buttonLocator,
+      click: vi.fn(async () => undefined),
+      evaluate: vi.fn(async () => true)
+    };
+    const workbookDownloadLocator = {
+      ...buttonLocator,
+      click: vi.fn(async () => undefined),
+      evaluate: vi.fn(async () => false)
+    };
+    page.locator.mockImplementation((selector) => {
+      const value = String(selector);
+      if (value.includes("Sign in") || value.includes("Login")) return loginLocator;
+      if (selector === "text=流量词") return hiddenFlowTextLocator;
+      if (value.includes("following-sibling") || value.includes("contains(@aria-label")) return emptyLocator;
+      if (value.includes("contains(@class,'download')")) return polarDownloadLocator;
+      if (value.includes("button[aria-label")) return workbookDownloadLocator;
+      return buttonLocator;
+    });
+    const collector = new Collector({ repository: {}, dataDir });
+
+    await collector.downloadWorkbook("B0DM96Z44F");
+
+    expect(polarDownloadLocator.click).not.toHaveBeenCalled();
+    expect(workbookDownloadLocator.click).toHaveBeenCalled();
   });
 });

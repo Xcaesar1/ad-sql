@@ -39,20 +39,18 @@ async function findDownloadButton(page) {
     {
       name: "flow-following-download-control",
       locator: page.locator(
-        "xpath=//*[normalize-space(.)='流量词']/following::*[self::button or self::a or @role='button'][contains(@aria-label,'下载') or contains(@title,'下载') or contains(@class,'download')][1]"
+        "xpath=//*[normalize-space(.)='流量词']/following::*[self::button or self::a or @role='button'][not(contains(@class,'downloadPolorBtn')) and not(contains(@class,'downloadPolarBtn')) and (contains(@aria-label,'下载') or contains(@title,'下载') or contains(@class,'download'))][1]"
       )
     },
     {
       name: "flow-following-download-class",
       locator: page.locator(
-        "xpath=//*[normalize-space(.)='流量词']/following::*[contains(@class,'download') or contains(@class,'Download') or contains(@class,'anticon-download')][1]"
+        "xpath=//*[normalize-space(.)='流量词']/following::*[not(contains(@class,'downloadPolorBtn')) and not(contains(@class,'downloadPolarBtn')) and (contains(@class,'download') or contains(@class,'Download') or contains(@class,'anticon-download'))][1]"
       )
     },
     {
       name: "global-download-control",
-      locator: page
-        .locator("[class*='download'], [class*='Download'], [aria-label*='下载'], [title*='下载'], button:has-text('下载')")
-        .first()
+      locator: page.locator("button[aria-label*='下载'], button[title*='下载'], a[aria-label*='下载'], a[title*='下载'], button:has-text('下载')").first()
     },
     {
       name: "flow-button-parent-last-control",
@@ -66,7 +64,11 @@ async function findDownloadButton(page) {
 
   for (const candidate of candidates) {
     try {
-      if ((await candidate.locator.count()) > 0 && (await candidate.locator.isVisible({ timeout: 1000 }))) {
+      if (
+        (await candidate.locator.count()) > 0 &&
+        (await candidate.locator.isVisible({ timeout: 1000 })) &&
+        !(await isRejectedDownloadCandidate(candidate.locator))
+      ) {
         return candidate;
       }
     } catch {
@@ -74,6 +76,18 @@ async function findDownloadButton(page) {
     }
   }
   return null;
+}
+
+async function isRejectedDownloadCandidate(locator) {
+  if (typeof locator.evaluate !== "function") return false;
+  return locator
+    .evaluate((node) => {
+      const className = typeof node.className === "string" ? node.className : "";
+      const closestClass = node.closest?.(".downloadPolorBtn,.downloadPolarBtn")?.className || "";
+      const html = node.outerHTML || "";
+      return /downloadPolorBtn|downloadPolarBtn/i.test(`${className} ${closestClass} ${html}`);
+    })
+    .catch(() => false);
 }
 
 async function saveDiagnosticScreenshot(page, dataDir, asin, reason) {
@@ -192,6 +206,10 @@ export class Collector {
     } finally {
       this.running = false;
     }
+  }
+
+  isRunning() {
+    return this.running;
   }
 
   async getContext() {

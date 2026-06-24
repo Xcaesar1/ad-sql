@@ -40,6 +40,14 @@ describe("API", () => {
     await request(app).post("/api/import/xlsx").expect(404);
   });
 
+  test("rejects duplicate collection runs while a collection is already running", async () => {
+    app.locals.collector.running = true;
+
+    const response = await request(app).post("/api/collections/run").send({ asins: ["B0DM96Z44F"] }).expect(409);
+
+    expect(response.body.error).toContain("采集任务正在运行中");
+  });
+
   test("reads an imported SIF batch and filters blocked keywords from dashboard and detail", async () => {
     await request(app).post("/api/asins").send({ asin: "B0DM96Z44F" }).expect(201);
     await request(app).post("/api/block-words").send({ word: "black" }).expect(201);
