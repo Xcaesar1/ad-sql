@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import request from "supertest";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { createApp } from "../server/app.js";
 
 const sampleWorkbook = path.resolve(
@@ -46,6 +46,19 @@ describe("API", () => {
     const response = await request(app).post("/api/collections/run").send({ asins: ["B0DM96Z44F"] }).expect(409);
 
     expect(response.body.error).toContain("采集任务正在运行中");
+  });
+
+  test("runs collection for all enabled ASINs when no ASIN list is provided", async () => {
+    await request(app).post("/api/asins").send({ asin: "B0DM96Z44F" }).expect(201);
+    await request(app).post("/api/asins").send({ asin: "B0FFSRD3DG" }).expect(201);
+    await request(app).patch("/api/asins/B0FFSRD3DG").send({ isEnabled: false }).expect(200);
+    const runQueue = vi.fn(async () => []);
+    app.locals.collector.runQueue = runQueue;
+
+    const response = await request(app).post("/api/collections/run").send({}).expect(202);
+
+    expect(response.body.accepted).toEqual(["B0DM96Z44F"]);
+    expect(runQueue).toHaveBeenCalledWith(["B0DM96Z44F"]);
   });
 
   test("reads an imported SIF batch and filters blocked keywords from dashboard and detail", async () => {

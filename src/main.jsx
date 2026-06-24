@@ -770,12 +770,12 @@ function SourceRail({
               <StatusBadge status={selectedAsinItem?.lastCollectionStatus} />
             </div>
             <div className="rail-info-card">
-              <span>当前 ASIN</span>
-              <b>{selectedAsin || "暂无"}</b>
-              <small>最后成功: {formatClock(selectedAsinItem?.lastSuccessAt)}</small>
+              <span>采集范围</span>
+              <b>全部启用 ASIN</b>
+              <small>当前启用: {enabledCount} 个</small>
             </div>
-            <button className="rail-primary-action" type="button" onClick={onRunCollector} disabled={!selectedAsin || isPending}>
-              {isPending ? "刷新中" : "采集当前 ASIN"}
+            <button className="rail-primary-action" type="button" onClick={onRunCollector} disabled={!enabledCount || isPending}>
+              {isPending ? "刷新中" : "采集全部启用"}
             </button>
             <div className="rail-mini-list">
               {collections.slice(0, 4).map((collection) => (
@@ -856,6 +856,7 @@ function SourceRail({
 
 function TopBar({ asins, selectedAsin, selectedAsinItem, dashboard, collections, selectedCollectionId, onSelectAsin, onSelectCollection, onRunCollector, onRefresh, isPending }) {
   const status = selectedAsinItem?.lastCollectionStatus || "never";
+  const enabledCount = asins.filter((asin) => asin.isEnabled && !asin.isDeleted).length;
   return (
     <header className="top-bar">
       <button className="icon-button" type="button" aria-label="折叠菜单">
@@ -888,9 +889,9 @@ function TopBar({ asins, selectedAsin, selectedAsinItem, dashboard, collections,
           </option>
         ))}
       </select>
-      <button type="button" className="collect-button" onClick={onRunCollector} disabled={!selectedAsin}>
+      <button type="button" className="collect-button" onClick={onRunCollector} disabled={!enabledCount}>
         <IconUpload />
-        立即采集
+        采集全部
       </button>
       <button type="button" className="ghost-button" onClick={onRefresh} disabled={!selectedAsin || isPending}>
         <IconRefresh />
@@ -1185,14 +1186,17 @@ function App() {
   }
 
   async function handleRunCollector() {
-    if (!selectedAsin) return;
+    const enabledCount = asins.filter((asin) => asin.isEnabled && !asin.isDeleted).length;
+    if (!enabledCount) {
+      setError("没有启用的 ASIN, 请先添加或启用 ASIN");
+      return;
+    }
     setError("");
     try {
       await api("/api/collections/run", {
-        method: "POST",
-        body: JSON.stringify({ asins: [selectedAsin] })
+        method: "POST"
       });
-      setMessage("已提交采集任务。采集主机会打开或复用专用 Chrome, 请留意窗口状态。");
+      setMessage(`已提交全部启用 ASIN 采集任务, 共 ${enabledCount} 个。采集主机会打开或复用专用 Chrome, 请留意窗口状态。`);
       await refreshAsins();
     } catch (err) {
       setError(err.message);
