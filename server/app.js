@@ -2,7 +2,6 @@ import express from "express";
 import fs from "node:fs";
 import path from "node:path";
 import multer from "multer";
-import { createServer as createViteServer } from "vite";
 import { Collector } from "./collector.js";
 import { createDatabase, ensureDataDirs } from "./db.js";
 import { Repository, normalizeAsin } from "./repository.js";
@@ -88,6 +87,12 @@ export async function createApp({ dataDir = path.resolve("data"), useVite = proc
   app.post(
     "/api/collections/run",
     asyncRoute(async (req, res) => {
+      if (collector.isDisabled()) {
+        res.status(503).json({
+          error: "自动采集已禁用。容器模式请使用上传 XLSX 兜底, 或在 Windows 采集主机原生运行。"
+        });
+        return;
+      }
       const requested = Array.isArray(req.body?.asins)
         ? req.body.asins.map(normalizeAsin)
         : repository
@@ -121,6 +126,7 @@ export async function createApp({ dataDir = path.resolve("data"), useVite = proc
   });
 
   if (useVite) {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa"

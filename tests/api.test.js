@@ -62,4 +62,17 @@ describe("API", () => {
     expect(blocked.body.items[0].isBlocked).toBe(true);
     expect(blocked.body.items[0].blockedBy).toBe("black");
   });
+
+  test("returns a clear error when auto collection is disabled", async () => {
+    process.env.SIF_COLLECTOR_DISABLED = "true";
+    await request(app).post("/api/asins").send({ asin: "B0DM96Z44F" }).expect(201);
+
+    const response = await request(app)
+      .post("/api/collections/run")
+      .send({ asins: ["B0DM96Z44F"] })
+      .expect(503);
+
+    expect(response.body.error).toContain("自动采集已禁用");
+    delete process.env.SIF_COLLECTOR_DISABLED;
+  });
 });

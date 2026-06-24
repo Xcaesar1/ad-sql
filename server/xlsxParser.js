@@ -1,5 +1,6 @@
 import path from "node:path";
-import XLSX from "xlsx";
+import AdmZip from "adm-zip";
+import { XMLParser } from "fast-xml-parser";
 import { parseRankDetail, toNullableNumber } from "./rankings.js";
 
 const REQUIRED_HEADERS = [
@@ -10,12 +11,12 @@ const REQUIRED_HEADERS = [
   "SP(常规)排名详情"
 ];
 
-function getWorkbook(source) {
-  if (Buffer.isBuffer(source)) {
-    return XLSX.read(source, { type: "buffer", cellDates: false });
-  }
-  return XLSX.readFile(source, { cellDates: false });
-}
+const xmlParser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: "",
+  textNodeName: "#text",
+  trimValues: false
+});
 
 function parseAsinFromText(text) {
   const match = String(text || "").match(/ASIN\(([A-Z0-9]{10})\)|\b([A-Z0-9]{10})\b/i);
@@ -30,6 +31,96 @@ function parseCountry(sheetName, metadataText) {
 
 function normalizeHeader(value) {
   return String(value || "").replace(/\s+/g, "").trim();
+}
+
+function ensureArray(value) {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function getZipText(zip, entryName) {
+  const entry = zip.getEntry(entryName);
+  if (!entry) return "";
+  return entry.getData().toString("utf8");
+}
+
+function parseXml(xml) {
+  return xmlParser.parse(xml);
+}
+
+function getTextNode(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (typeof value === "object") {
+    if (value["#text"] !== undefined) return String(value["#text"]);
+    if (value.t !== undefined) return getTextNode(value.t);
+  }
+  return "";
+}
+
+function richTextToString(si) {
+  if (!si) return "";
+  if (si.t !== undefined) return getTextNode(si.t);
+  return ensureArray(si.r)
+    .map((run) => getTextNode(run.t))
+    .join("");
+}
+
+function loadSharedStrings(zip) {
+  const xml = getZipText(zip, "xl/sharedStrings.xml");
+  if (!xml) return [];
+  const parsed = parseXml(xml);
+  return ensureArray(parsed.sst?.si).map(richTextToString);
+}
+
+function resolveFirstSheet(zip) {
+  const workbook = parseXml(getZipText(zip, "xl/workbook.xml"));
+  const rels = parseXml(getZipText(zip, "xl/_rels/workbook.xml.rels"));
+  const sheets = ensureArray(workbook.workbook?.sheets?.sheet);
+  if (!sheets.length) return null;
+
+  const firstSheet = sheets[0];
+  const relationships = ensureArray(rels.Relationships?.Relationship);
+  const relationship = relationships.find((rel) => rel.Id === firstSheet["r:id"]);
+  const target = relationship?.Target || "worksheets/sheet1.xml";
+  const normalizedTarget = target.startsWith("/") ? target.slice(1) : target;
+  return {
+    name: firstSheet.name || "Sheet1",
+    path: normalizedTarget.startsWith("xl/") ? normalizedTarget : `xl/${normalizedTarget}`
+  };
+}
+
+function columnIndex(cellRef) {
+  const letters = String(cellRef || "").match(/[A-Z]+/)?.[0] || "A";
+  let index = 0;
+  for (const letter of letters) {
+    index = index * 26 + letter.charCodeAt(0) - 64;
+  }
+  return index - 1;
+}
+
+function getCellValue(cell, sharedStrings) {
+  if (!cell) return "";
+  const type = cell.t;
+  if (type === "s") {
+    const sharedIndex = Number(getTextNode(cell.v));
+    return sharedStrings[sharedIndex] ?? "";
+  }
+  if (type === "inlineStr") {
+    return richTextToString(cell.is);
+  }
+  return getTextNode(cell.v);
+}
+
+function loadRows(zip, sheetPath, sharedStrings) {
+  const worksheet = parseXml(getZipText(zip, sheetPath));
+  return ensureArray(worksheet.worksheet?.sheetData?.row).map((row) => {
+    const values = [];
+    for (const cell of ensureArray(row.c)) {
+      values[columnIndex(cell.r)] = getCellValue(cell, sharedStrings);
+    }
+    return values.map((value) => value ?? "");
+  });
 }
 
 function buildHeaderIndex(headers) {
@@ -56,18 +147,15 @@ function assertRequiredHeaders(headerIndex) {
 export { parseRankDetail };
 
 export function parseSifWorkbook(source) {
-  const workbook = getWorkbook(source);
-  const sheetName = workbook.SheetNames[0];
-  if (!sheetName) {
+  const zip = Buffer.isBuffer(source) ? new AdmZip(source) : new AdmZip(source);
+  const sharedStrings = loadSharedStrings(zip);
+  const firstSheet = resolveFirstSheet(zip);
+  if (!firstSheet) {
     throw new Error("XLSX 文件没有工作表");
   }
 
-  const sheet = workbook.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json(sheet, {
-    header: 1,
-    raw: false,
-    defval: ""
-  });
+  const sheetName = firstSheet.name;
+  const rows = loadRows(zip, firstSheet.path, sharedStrings);
 
   if (rows.length < 3) {
     throw new Error("SIF XLSX 行数不足, 至少需要元信息、表头和数据行");
