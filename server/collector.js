@@ -25,40 +25,22 @@ function getDiagnosticsDir(dataDir) {
 async function findDownloadButton(page) {
   const candidates = [
     {
-      name: "flow-tab-following-sibling-control",
+      name: "keyword-filter-flow-download",
       locator: page.locator(
-        "xpath=//*[normalize-space(.)='流量词']/ancestor-or-self::*[self::button or self::a or @role='button'][1]/following-sibling::*[self::button or self::a or @role='button'][1]"
+        "xpath=//*[contains(normalize-space(.),'当前筛选')]/following::*[normalize-space(.)='流量词'][1]/following::*[not(contains(@class,'downloadPolorBtn')) and not(contains(@class,'downloadPolarBtn')) and (self::button or self::a or self::div or self::span or @role='button') and (contains(@class,'download') or contains(@class,'Download') or contains(@class,'icon-xiazai') or contains(@aria-label,'下载') or contains(@title,'下载'))][1]"
       )
     },
     {
-      name: "flow-text-following-sibling-control",
+      name: "keyword-filter-download",
       locator: page.locator(
-        "xpath=//*[normalize-space(.)='流量词']/following-sibling::*[self::button or self::a or @role='button'][1]"
+        "xpath=//*[contains(normalize-space(.),'当前筛选')]/following::*[not(contains(@class,'downloadPolorBtn')) and not(contains(@class,'downloadPolarBtn')) and (self::button or self::a or self::div or self::span or @role='button') and (contains(@class,'download') or contains(@class,'Download') or contains(@class,'icon-xiazai') or contains(@aria-label,'下载') or contains(@title,'下载'))][1]"
       )
     },
     {
-      name: "flow-following-download-control",
+      name: "keyword-table-download-icon",
       locator: page.locator(
-        "xpath=//*[normalize-space(.)='流量词']/following::*[self::button or self::a or @role='button'][not(contains(@class,'downloadPolorBtn')) and not(contains(@class,'downloadPolarBtn')) and (contains(@aria-label,'下载') or contains(@title,'下载') or contains(@class,'download'))][1]"
+        "xpath=//*[contains(normalize-space(.),'当前筛选')]/following::*[contains(@class,'download_icon') or contains(@class,'icon-xiazai')][not(ancestor-or-self::*[contains(@class,'downloadPolorBtn') or contains(@class,'downloadPolarBtn')])][1]"
       )
-    },
-    {
-      name: "flow-following-download-class",
-      locator: page.locator(
-        "xpath=//*[normalize-space(.)='流量词']/following::*[not(contains(@class,'downloadPolorBtn')) and not(contains(@class,'downloadPolarBtn')) and (contains(@class,'download') or contains(@class,'Download') or contains(@class,'anticon-download'))][1]"
-      )
-    },
-    {
-      name: "global-download-control",
-      locator: page.locator("button[aria-label*='下载'], button[title*='下载'], a[aria-label*='下载'], a[title*='下载'], button:has-text('下载')").first()
-    },
-    {
-      name: "flow-button-parent-last-control",
-      locator: page.locator("button", { hasText: /^流量词$/ }).locator("..").locator("button, a, [role='button'], span, i, svg").last()
-    },
-    {
-      name: "flow-text-parent-last-control",
-      locator: page.locator("text=流量词").locator("..").locator("button, a, [role='button'], span, i, svg").last()
     }
   ];
 
@@ -85,7 +67,10 @@ async function isRejectedDownloadCandidate(locator) {
       const className = typeof node.className === "string" ? node.className : "";
       const closestClass = node.closest?.(".downloadPolorBtn,.downloadPolarBtn")?.className || "";
       const html = node.outerHTML || "";
-      return /downloadPolorBtn|downloadPolarBtn/i.test(`${className} ${closestClass} ${html}`);
+      const text = `${node.innerText || node.textContent || ""} ${node.closest?.("button,a,[role='button'],.modal,.el-dialog,.ant-modal")?.innerText || ""}`;
+      return /downloadPolorBtn|downloadPolarBtn|使用指南|视频教程|秒懂视频|下载插件|购买会员|购买积分|AI工具/i.test(
+        `${className} ${closestClass} ${html} ${text}`
+      );
     })
     .catch(() => false);
 }
